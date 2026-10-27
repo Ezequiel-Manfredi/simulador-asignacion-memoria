@@ -1,15 +1,18 @@
 
 class Proceso:
-  genId: int = 1
+  genId: int = 0
   
-  def __init__(self,tArribo: int,tIrrupcion: int,tamaño: int) -> None:
-    self.id = Proceso.genId
-    Proceso.genId += 1
+  def __init__(self,tArribo: int,tIrrupcion: int,tamaño: int,id: int = None) -> None:
+    self.id = id if id else self.siguienteId()
     self.tArribo = tArribo
     self.tIrrupcion = tIrrupcion
     self.tamaño = tamaño
     self.tEjecutando: int = 0
     self.tTerminado: int = None
+  
+  def siguienteId(self) -> int:
+    Proceso.genId += 1
+    return Proceso.genId
   
   def ejecutar(self, tProcesador: int) -> None:
     if self.aTerminado():

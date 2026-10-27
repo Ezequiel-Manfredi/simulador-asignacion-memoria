@@ -68,8 +68,11 @@ class SistemaOperativo:
     self.arribos.sort(key=lambda x: x["ta"])
     print("- Archivo cargado correctamente.")
   
-  def cargarNuevos() -> None:
-    pass
+  def cargarNuevos(self) -> None:
+    while len(self.arribos) > 0 and self.arribos[0]["ta"] == self.tiempo:
+      proceso = self.arribos.pop(0)
+      self.nuevos.agregar(Proceso(proceso['ta'],proceso['ti'],proceso['tam'],proceso['id']))
+      self.registrarEvento(f"Proceso {proceso['id']} ha llegado a la cola de nuevos.")
   
   def admitirProcesos() -> None:
     pass
