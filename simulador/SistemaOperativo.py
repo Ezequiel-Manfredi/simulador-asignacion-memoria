@@ -80,12 +80,15 @@ class SistemaOperativo:
   def cargarEnMemoria(self, proceso: Proceso) -> Cola:
     cargado = self.memoriaPrincipal.guardar(proceso)
     if cargado:
+      self.registrarEvento(f"Proceso {proceso['id']} ha sido cargado en memoria principal.")
       return self.listos
     else:
+      self.registrarEvento(f"No hay suficiente memoria principal para admitir el proceso {proceso['id']}.")
       cargado = self.memoriaAuxiliar.guardar(proceso)
       if not cargado:
         print("Error: sin memoria")
         exit(1)
+      self.registrarEvento(f"Proceso {proceso['id']} ha sido cargado en memoria auxiliar.")
       return self.listosySusp
   
   def admitirProcesos(self) -> None:
