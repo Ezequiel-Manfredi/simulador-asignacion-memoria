@@ -74,8 +74,26 @@ class SistemaOperativo:
       self.nuevos.agregar(Proceso(proceso['ta'],proceso['ti'],proceso['tam'],proceso['id']))
       self.registrarEvento(f"Proceso {proceso['id']} ha llegado a la cola de nuevos.")
   
-  def admitirProcesos() -> None:
-    pass
+  def procesosAdmitidos(self) -> int:
+    return len(self.listos) + len(self.listosySusp) + (1 if self.ejecutando else 0)
+  
+  def cargarEnMemoria(self, proceso: Proceso) -> Cola:
+    cargado = self.memoriaPrincipal.guardar(proceso)
+    if cargado:
+      return self.listos
+    else:
+      cargado = self.memoriaAuxiliar.guardar(proceso)
+      if not cargado:
+        print("Error: sin memoria")
+        exit(1)
+      return self.listosySusp
+  
+  def admitirProcesos(self) -> None:
+    while len(self.nuevos) > 0 and self.procesosAdmitidos() < 5:
+      proceso = self.nuevos.pop(0)
+      cola = self.cargarEnMemoria(proceso)
+      cola.agregar(proceso)
+      self.registrarEvento(f"Proceso {proceso['id']} ha sido admitido.")
   
   def reasignarParticion(particion: Particion) -> None:
     pass
