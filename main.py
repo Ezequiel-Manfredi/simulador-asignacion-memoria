@@ -1,4 +1,4 @@
-import sys
+import re
 
 pausar = True
 colaArribo = []
@@ -7,8 +7,8 @@ colaListo = []
 colaListoySuspendido = []
 colaTerminado = []
 memoriaPrincipal = [
-  {"id": 0,"idp": -1,"tipo": "so","base": 0, "limite": 100},
-  {"id": 1,"idp": -1,"tipo": "hueco","base": 100, "limite": 450}
+  {"id": 0,"idp": -1,"tipo": "so","base": 0, "tamaño": 100},
+  {"id": 1,"idp": -1,"tipo": "hueco","base": 100, "tamaño": 450}
 ]
 idPrincipal = 2
 memoriaAuxiliar = []
@@ -69,27 +69,51 @@ def imprimirEventos():
   input("\nPresione Enter para ir al siguiente ciclo con eventos...")
   ocurrioEvento = False
 
-def cargarArchivo(ruta):
+def cargarArchivo():
   archivo = None
-  try:
-    archivo = open(ruta, "r")
-    archivo.readline() # saltar encabezado
-    for line in archivo:
-      informacion = line.strip().split(",")
-      colaArribo.append({
-        "id": int(informacion[0]), 
-        "ta": int(informacion[1]), 
-        "ti": int(informacion[2]), 
-        "tam": int(informacion[3])
-      })
-  except FileNotFoundError:
-      print("Error: No se encontró el archivo de entrada.")
-      print("Asegúrese de que el archivo 'entrada.txt' esté en el mismo directorio que este script.")
-      exit(1)
-  finally:
-    if archivo:
-      archivo.close()
+  
+  print("\nIngrese la ruta al archivo de entrada a simular")
+  while not archivo:
+    ruta = input("- Ruta relativa o absoluta: ")
+    try:
+      archivo = open(ruta, "r")
+      encabezado = re.match('id,ta,ti,tam', archivo.readline())
+      if not encabezado:
+        print("\tError: archivo sin encabezado correcto (id,ta,ti,tam)")
+        archivo.close()
+        archivo = None
+        continue
+      print("- Cargando archivo de entrada...")
+      for linea in archivo:
+        if len(colaArribo) >= 10:
+          print("\tError: no se permiten más de 10 procesos.")
+          archivo.close()
+          archivo = None
+          colaArribo.clear()
+          break
+        info = re.match("\\d+,\\d+,\\d+,\\d+",linea)
+        if not info:
+          print("\tError: archivo sin formato correcto (ej. 1,2,3,4)")
+          archivo.close()
+          archivo = None
+          colaArribo.clear()
+          break
+        
+        informacion = linea.strip().split(",")
+        colaArribo.append({
+          "id": int(informacion[0]), 
+          "ta": int(informacion[1]), 
+          "ti": int(informacion[2]), 
+          "tam": int(informacion[3])
+        })
+    except FileNotFoundError:
+        print("\tError: No se encontró el archivo de entrada.")
+        archivo = None
+    finally:
+      if archivo:
+        archivo.close()
   colaArribo.sort(key=lambda x: x["ta"])
+  print("- Archivo cargado correctamente.")
 
 def cargarProcesosNuevos():
   while len(colaArribo) > 0 and colaArribo[0]["ta"] == tiempo:
@@ -98,6 +122,16 @@ def cargarProcesosNuevos():
     colaNuevo.append(proceso)
     registrarEvento(f"Proceso {proceso['id']} ha llegado a la cola de nuevos.")
 
+def buscarMejorHueco(tamaño):
+  mejorHueco = None
+
+  for particion in memoriaPrincipal:
+    if particion["tipo"] == "hueco" and particion["tamaño"] >= tamaño:
+      if mejorHueco is None or particion["tamaño"] < mejorHueco["tamaño"]:
+        mejorHueco = particion
+
+  return mejorHueco
+
 def cargarEnMemoria(proceso):
   global memoriaPrincipal, idPrincipal, idAuxiliar
   pcb = {
@@ -105,48 +139,54 @@ def cargarEnMemoria(proceso):
     "idp": proceso["id"],
     "tipo": "proceso",
     "base": None,
-    "limite": proceso["tam"]
+    "tamaño": proceso["tam"]
   }
-  for particion in memoriaPrincipal:  # Esto toma el primer hueco suficientemente grande que encuentra. EsTo es First-Fit.
-    if particion["tipo"] == "hueco":
-      if particion["limite"] < proceso["tam"]:
-        continue
-      if particion["limite"] > proceso["tam"]:
-        hueco = {
-          "id": idPrincipal,
-          "idp": -1,
-          "tipo": "hueco",
-          "base": particion["base"] + proceso["tam"],
-          "limite": particion["limite"] - proceso["tam"]
-        }
-        idPrincipal += 1
-        memoriaPrincipal.insert(memoriaPrincipal.index(particion) + 1, hueco)
-      pcb["id"] = particion["id"]
-      pcb["base"] = particion["base"]
-      memoriaPrincipal[memoriaPrincipal.index(particion)] = pcb
-      registrarEvento(f"Proceso {proceso['id']} ha sido cargado en memoria principal.")
-      return colaListo
+  particion = buscarMejorHueco(proceso["tam"])
   
+  if particion is not None:
+    pcb["id"] = idPrincipal
+    pcb["base"] = particion["base"]
+    idPrincipal += 1
+    indice = memoriaPrincipal.index(particion)
+
+    if particion["tamaño"] > proceso["tam"]:
+      hueco = {
+        "id": idPrincipal,
+        "idp": -1,
+        "tipo": "hueco",
+        "base": particion["base"] + proceso["tam"],
+        "tamaño": particion["tamaño"] - proceso["tam"]
+      }
+      idPrincipal += 1
+      memoriaPrincipal.insert(indice + 1, hueco)
+
+    memoriaPrincipal[indice] = pcb
+    registrarEvento(f"Proceso {proceso['id']} ha sido cargado en memoria principal.")
+    return colaListo
+
   registrarEvento(f"No hay suficiente memoria principal para admitir el proceso {proceso['id']}.")
 
-  nuevaBase = memoriaAuxiliar[-1]["base"] + memoriaAuxiliar[-1]["limite"] if len(memoriaAuxiliar) > 0 else 0
+  nuevaBase = memoriaAuxiliar[-1]["base"] + memoriaAuxiliar[-1]["tamaño"] if memoriaAuxiliar else 0
   pcb["id"] = idAuxiliar
-  pcb["base"] = nuevaBase if len(memoriaAuxiliar) > 0 else 0
+  pcb["base"] = nuevaBase
   idAuxiliar += 1
   memoriaAuxiliar.append(pcb)
   registrarEvento(f"Proceso {proceso['id']} ha sido cargado en memoria auxiliar.")
   return colaListoySuspendido
 
+def tiempoRestante(proceso):
+  return proceso["ti"] - proceso["tx"]
+
 def ordenarProcesoEnCola(cola, proceso):
-  for p in cola:
-    if p["ti"] > proceso["ti"]:
-      cola.insert(cola.index(p), proceso)
+  for i,p in enumerate(cola):
+    if tiempoRestante(p) > tiempoRestante(proceso):
+      cola.insert(i, proceso)
       break
   else:
     cola.append(proceso)
 
 def admitirProcesos():
-  cantidadProcesos = lambda : len(colaListo) + len(colaListoySuspendido) + 1 if procesoEjecutando else 0
+  cantidadProcesos = lambda : len(colaListo) + len(colaListoySuspendido) + (1 if procesoEjecutando else 0)
   while len(colaNuevo) > 0 and cantidadProcesos() < 5:
     proceso = colaNuevo.pop(0)
     cola = cargarEnMemoria(proceso)
@@ -154,16 +194,16 @@ def admitirProcesos():
     registrarEvento(f"Proceso {proceso['id']} ha sido admitido.")
 
 def liberarMemoria(proceso, memoria):
-  for particion in memoria:
+  for i,particion in enumerate(memoria):
     if particion["idp"] == proceso["id"]:
       # mirar procesos adyacentes para fusionar huecos
-      if memoria.index(particion) > 0 and memoria[memoria.index(particion) - 1]["tipo"] == "hueco":
-        particion["base"] = memoria[memoria.index(particion) - 1]["base"]
-        particion["limite"] += memoria[memoria.index(particion) - 1]["limite"] # ACA NO ESTARIA SUMANDO VALORES DE PUNTO EN VEZ DE "MODULOS"?
-        memoria.pop(memoria.index(particion) - 1)
-      if memoria.index(particion) < len(memoria) - 1 and memoria[memoria.index(particion) + 1]["tipo"] == "hueco":
-        particion["limite"] += memoria[memoria.index(particion) + 1]["limite"]
-        memoria.pop(memoria.index(particion) + 1)
+      if i < len(memoria) - 1 and memoria[i + 1]["tipo"] == "hueco":
+        particion["tamaño"] += memoria[i + 1]["tamaño"]
+        memoria.pop(i + 1)
+      if i > 0 and memoria[i - 1]["tipo"] == "hueco":
+        particion["base"] = memoria[i - 1]["base"]
+        particion["tamaño"] += memoria[i - 1]["tamaño"]
+        memoria.pop(i - 1)
       particion["idp"] = -1
       particion["tipo"] = "hueco"
       registrarEvento(f"Proceso {proceso['id']} ha sido liberado de memoria.")
@@ -173,21 +213,21 @@ def reasignarMemoriaPrincipal(particion):
   global idPrincipal
   # REFLEJAR ESTO EN EL DIAGRAMA DE FLUJO: ni bien liberado memoria se comprueba que algun suspendido pueda entrar
   for proceso in colaListoySuspendido:
-    if particion["limite"] < proceso["tam"]:
+    if particion["tamaño"] < proceso["tam"]:
       continue
-    if particion["limite"] > proceso["tam"]:
+    if particion["tamaño"] > proceso["tam"]:
       hueco = {
         "id": idPrincipal,
         "idp": -1,
         "tipo": "hueco",
         "base": particion["base"] + proceso["tam"],
-        "limite": particion["limite"] - proceso["tam"]
+        "tamaño": particion["tamaño"] - proceso["tam"]
       }
       idPrincipal += 1
       memoriaPrincipal.insert(memoriaPrincipal.index(particion) + 1, hueco)
     particion["idp"] = proceso["id"]
     particion["tipo"] = "proceso"
-    particion["limite"] = proceso["tam"]
+    particion["tamaño"] = proceso["tam"]
     liberarMemoria(proceso, memoriaAuxiliar)
     registrarEvento(f"Proceso {proceso['id']} paso de la memoria auxiliar a la memoria principal.")
     ordenarProcesoEnCola(colaListo, colaListoySuspendido.pop(colaListoySuspendido.index(proceso)))
@@ -204,7 +244,7 @@ def ejecutarProceso():
       registrarEvento(f"Proceso {procesoEjecutando['id']} ha comenzado a ejecutarse.")
       return
     else:
-      if procesoEjecutando["ti"] > colaListo[0]["ti"]:
+      if tiempoRestante(procesoEjecutando) > tiempoRestante(colaListo[0]):
         registrarEvento(f"Proceso {procesoEjecutando['id']} ha sido interrumpido por el proceso {colaListo[0]['id']}.")
         ordenarProcesoEnCola(colaListo, procesoEjecutando)
         procesoEjecutando = colaListo.pop(0)
@@ -265,17 +305,8 @@ def bucle():
   generarInformeEstadistico()
 
 if __name__ == "__main__":
-  ruta = "entrada.txt"
-  for i,arg in enumerate(sys.argv):
-    if i != 0:
-      if arg.startswith('-'):
-        pausar = False
-      else:
-        ruta = arg
   print("\nSimulador de planificación de procesos")
   print("\n=====================================")
-  print("\nCargando archivo de entrada...")
-  cargarArchivo(ruta)
-  print("Archivo cargado correctamente.")
+  cargarArchivo()
   print("Iniciando simulación...")
   bucle()
